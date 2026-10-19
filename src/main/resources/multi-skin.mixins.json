@@ -1,0 +1,27 @@
+{
+	"required": true,
+	"package": "net.multiskin.mixin",
+	"compatibilityLevel": "JAVA_21",
+	"client": [
+	"bodyparts.BipedEntityModelMixin",
+	"bodyparts.ClientPlayerMovementMixin",
+	"bodyparts.ClientPlayerPoseMixin",
+	"bodyparts.HeldItemRendererMixin",
+	"bodyparts.MinecraftClientMixin",
+	"bodyparts.PlayerEntityModelMixin",
+	"bodyparts.PlayerEntityRendererMixin",
+	"bodyparts.PlayerHeldItemFeatureRendererMixin",
+	"skin.PlayerRendererMixin",
+	"skin.FirstPersonArmMixin",
+	"skin.SkinTexturesMixin",
+	"skin.PlayerListEntryMixin",
+	"skin.PlayerListHudMixin"
+	],
+	"mixins": [
+		"bodyparts.PlayerEntityPoseMixin",
+		"bodyparts.ServerPlayerMovementMixin"
+	],
+	"injectors": {
+		"defaultRequire": 1
+	}
+}

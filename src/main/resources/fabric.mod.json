@@ -1,0 +1,35 @@
+{
+	"schemaVersion": 1,
+	"id": "multi-skin",
+	"version": "${version}",
+	"name": "Multi-Skin",
+	"description": "Gestion des skins, des parties du corps et de la taille des joueurs.",
+	"authors": [
+		"lou-you"
+	],
+	"contact": {
+		"homepage": "https://fabricmc.net/",
+		"sources": "https://github.com/FabricMC/fabric-example-mod"
+	},
+	"license": "CC0-1.0",
+	"icon": "assets/multi-skin/icon.png",
+	"environment": "*",
+	"entrypoints": {
+		"main": [
+			"net.multiskin.MultiSkinMod"
+		],
+		"client": [
+			"net.multiskin.MultiSkinModClient"
+		]
+	},
+	"mixins": [
+		"multi-skin.mixins.json"
+	],
+	"depends": {
+		"fabricloader": ">=0.19.3",
+		"minecraft": "~1.21.1",
+		"java": ">=21",
+		"fabric-api": "*",
+		"pehkui": ">=3.8.3"
+	}
+}
