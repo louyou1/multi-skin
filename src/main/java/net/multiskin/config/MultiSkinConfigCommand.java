@@ -1,6 +1,7 @@
 package net.multiskin.config;
 
 import com.mojang.brigadier.arguments.FloatArgumentType;
+import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.minecraft.server.command.ServerCommandSource;
 import net.minecraft.server.network.ServerPlayerEntity;
@@ -21,38 +22,58 @@ public final class MultiSkinConfigCommand {
 
     public static void register() {
         CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) ->
-                dispatcher.register(literal("multiskinconfig")
-                        .requires(source -> source.hasPermissionLevel(2))
-                        .then(literal("get")
-                                .executes(context -> sendConfig(context.getSource()))
+                dispatcher.register(
+                        literal("multiskinconfig")
+                                .requires(source -> source.hasPermissionLevel(2))
+                                .then(literal("get")
+                                        .executes(context -> sendConfig(context.getSource()))
+                                        .then(literal("size")
+                                                .then(literal("speed")
+                                                        .executes(context -> sendSpeed(context.getSource())))
+                                                .then(literal("reach")
+                                                        .executes(context -> sendReach(context.getSource()))))
+                                        .then(literal("skin")
+                                                .then(literal("size")
+                                                        .executes(context -> sendMaxSkinSize(context.getSource())))))
                                 .then(literal("size")
                                         .then(literal("speed")
-                                                .executes(context -> sendSpeed(context.getSource())))
+                                                .then(argument("coefficient", FloatArgumentType.floatArg(
+                                                        MultiSkinConfig.MIN_EFFECT, MultiSkinConfig.MAX_EFFECT
+                                                )).executes(context -> setSpeed(
+                                                        context.getSource(),
+                                                        FloatArgumentType.getFloat(context, "coefficient")
+                                                ))))
                                         .then(literal("reach")
-                                                .executes(context -> sendReach(context.getSource())))))
-                        .then(literal("size")
-                                .then(literal("speed")
-                                        .then(argument("coefficient", FloatArgumentType.floatArg(
-                                                MultiSkinConfig.MIN_EFFECT, MultiSkinConfig.MAX_EFFECT
-                                        )).executes(context -> setSpeed(
-                                                context.getSource(),
-                                                FloatArgumentType.getFloat(context, "coefficient")
-                                        ))))
-                                .then(literal("reach")
-                                        .then(argument("coefficient", FloatArgumentType.floatArg(
-                                                MultiSkinConfig.MIN_EFFECT, MultiSkinConfig.MAX_EFFECT
-                                        )).executes(context -> setReach(
-                                                context.getSource(),
-                                                FloatArgumentType.getFloat(context, "coefficient")
-                                        )))))
-                        .then(literal("reload").executes(context -> reload(context.getSource())))
+                                                .then(argument("coefficient", FloatArgumentType.floatArg(
+                                                        MultiSkinConfig.MIN_EFFECT, MultiSkinConfig.MAX_EFFECT
+                                                )).executes(context -> setReach(
+                                                        context.getSource(),
+                                                        FloatArgumentType.getFloat(context, "coefficient")
+                                                ))))
+                                )
+                                .then(literal("skin").then(createSkinSizeBranch()))
+                                .then(literal("reload").executes(context -> reload(context.getSource())))
                 )
         );
+    }
+
+    private static LiteralArgumentBuilder<ServerCommandSource> createSkinSizeBranch() {
+        return literal("size")
+                .then(skinSizeOption("64", 64))
+                .then(skinSizeOption("128", 128))
+                .then(skinSizeOption("256", 256))
+                .then(skinSizeOption("512", 512))
+                .then(skinSizeOption("1024", 1024));
+    }
+
+    private static LiteralArgumentBuilder<ServerCommandSource> skinSizeOption(String name, int size) {
+        return literal(name).executes(context -> setMaxSkinSize(context.getSource(), size));
     }
 
     private static int sendConfig(ServerCommandSource source) {
         sendSpeed(source);
         sendReach(source);
+        sendMaxSkinSize(source);
         return 1;
     }
 
@@ -68,6 +89,15 @@ public final class MultiSkinConfigCommand {
         source.sendFeedback(() -> Text.translatable(
                 "command.multi-skin.config.reach_status",
                 MultiSkinConfig.getReachEffect()
+        ).formatted(Formatting.YELLOW), false);
+        return 1;
+    }
+
+    private static int sendMaxSkinSize(ServerCommandSource source) {
+        source.sendFeedback(() -> Text.translatable(
+                "command.multi-skin.config.skin_size_status",
+                MultiSkinConfig.getMaxSkinSize(),
+                MultiSkinConfig.getMaxSkinSize()
         ).formatted(Formatting.YELLOW), false);
         return 1;
     }
@@ -91,6 +121,18 @@ public final class MultiSkinConfigCommand {
             reapplyToPlayers(source);
             source.sendFeedback(() -> Text.translatable(
                     "command.multi-skin.config.reach_set", value
+            ).formatted(Formatting.GREEN), true);
+            return 1;
+        } catch (IOException e) {
+            return sendSaveError(source, e);
+        }
+    }
+
+    private static int setMaxSkinSize(ServerCommandSource source, int value) {
+        try {
+            MultiSkinConfig.setMaxSkinSize(value);
+            source.sendFeedback(() -> Text.translatable(
+                    "command.multi-skin.config.skin_size_set", value, value
             ).formatted(Formatting.GREEN), true);
             return 1;
         } catch (IOException e) {

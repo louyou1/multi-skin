@@ -3,6 +3,7 @@ package net.multiskin.skin;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.text.MutableText;
 import net.minecraft.text.Text;
+import net.multiskin.config.MultiSkinConfig;
 import net.multiskin.skin.size.SizeManager;
 
 import java.awt.image.BufferedImage;
@@ -35,14 +36,6 @@ public class SkinManager {
             .build();
     private static final Path SKIN_FOLDER = Path.of("config", "multi-skin", "skins");
     private static final Map<UUID, SkinData> SKIN_DATA_CACHE = new ConcurrentHashMap<>();
-
-    private static final int[] ALLOWED_SKIN_SIZES = {
-            64,
-            128,
-            256,
-            512,
-            1024
-    };
 
     public record SkinData(String url, String model, int heightCm) {}
 
@@ -118,17 +111,13 @@ public class SkinManager {
         int width = image.getWidth();
         int height = image.getHeight();
 
-        boolean validSize = false;
-
-        for (int size : ALLOWED_SKIN_SIZES) {
-            if (width == size && height == size) {
-                validSize = true;
-                break;
-            }
-        }
-
-        if (!validSize) {
-            throw new SkinException("error.multi-skin.skin.invalid_image_size");
+        if (width != height
+                || !MultiSkinConfig.isSupportedSkinSize(width)
+                || width > MultiSkinConfig.getMaxSkinSize()) {
+            throw new SkinException(
+                    "error.multi-skin.skin.invalid_image_size",
+                    MultiSkinConfig.getMaxSkinSize()
+            );
         }
 
         return image;
