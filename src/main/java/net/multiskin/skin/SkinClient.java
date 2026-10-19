@@ -25,6 +25,8 @@ public class SkinClient {
     private static final Map<UUID, String> SKIN_MODELS = new ConcurrentHashMap<>();
     private static final Map<UUID, String> SKIN_URLS = new ConcurrentHashMap<>();
     private static final Map<UUID, Integer> SKIN_HEIGHTS = new ConcurrentHashMap<>();
+    private static final Map<UUID, LocalSkinSource> LOCAL_SKIN_SOURCES = new ConcurrentHashMap<>();
+    private static final Map<UUID, LocalSkinSource> PENDING_LOCAL_SKIN_SOURCES = new ConcurrentHashMap<>();
     private static final Map<UUID, PendingSkinTransfer> PENDING_SKIN_TRANSFERS = new HashMap<>();
 
     private static final Map<Path, Identifier> SKIN_THUMBNAILS = new HashMap<>();
@@ -65,6 +67,8 @@ public class SkinClient {
     }
 
     private record CachedSkinTextures(SkinTexturesKey key, SkinTextures value) {}
+
+    private record LocalSkinSource(String source, String model, int heightCm) {}
 
     private record SkinTexturesKey(
             Identifier texture,
@@ -143,7 +147,31 @@ public class SkinClient {
         }
 
         UUID playerUuid = payload.playerUuid();
-        SKIN_URLS.put(playerUuid, payload.skinUrl());
+        String appliedUrl = payload.skinUrl();
+        if (SkinManager.UPLOADED_SKIN_SOURCE.equals(appliedUrl)) {
+            MinecraftClient client = MinecraftClient.getInstance();
+            if (client.player != null && client.player.getUuid().equals(playerUuid)) {
+                LocalSkinSource pendingSource = PENDING_LOCAL_SKIN_SOURCES.remove(playerUuid);
+                if (pendingSource != null) {
+                    if (pendingSource.model().equalsIgnoreCase(payload.skinModel())
+                            && pendingSource.heightCm() == payload.heightCm()) {
+                        LOCAL_SKIN_SOURCES.put(playerUuid, pendingSource);
+                    } else {
+                        LOCAL_SKIN_SOURCES.remove(playerUuid);
+                    }
+                }
+                LocalSkinSource localSource = LOCAL_SKIN_SOURCES.get(playerUuid);
+                if (localSource != null
+                        && localSource.model().equalsIgnoreCase(payload.skinModel())
+                        && localSource.heightCm() == payload.heightCm()) {
+                    appliedUrl = localSource.source();
+                }
+            }
+        } else {
+            LOCAL_SKIN_SOURCES.remove(playerUuid);
+            PENDING_LOCAL_SKIN_SOURCES.remove(playerUuid);
+        }
+        SKIN_URLS.put(playerUuid, appliedUrl);
         SKIN_MODELS.put(playerUuid, payload.skinModel());
         SKIN_HEIGHTS.put(playerUuid, payload.heightCm());
         PENDING_SKIN_TRANSFERS.put(playerUuid, new PendingSkinTransfer(payload));
@@ -220,6 +248,7 @@ public class SkinClient {
         SKIN_URLS.clear();
         SKIN_HEIGHTS.clear();
         PENDING_SKIN_TRANSFERS.clear();
+        PENDING_LOCAL_SKIN_SOURCES.clear();
     }
 
     public static void loadPreviewSkin(String url, String model) {
@@ -265,6 +294,8 @@ public class SkinClient {
             return;
         }
         int requestId = ++applyRequestId;
+        UUID playerUuid = client.player.getUuid();
+        PENDING_LOCAL_SKIN_SOURCES.remove(playerUuid);
         if (SkinImageSource.isRemote(source)) {
             ClientPlayNetworking.send(new SkinNetworking.SkinApplyRequest(
                     source, model, heightCm, removedPartsMask & 0xF));
@@ -281,6 +312,8 @@ public class SkinClient {
                             || client.getNetworkHandler() == null) {
                         return;
                     }
+                    PENDING_LOCAL_SKIN_SOURCES.put(
+                            playerUuid, new LocalSkinSource(source, model, heightCm));
                     UUID transferId = UUID.randomUUID();
                     int chunkCount = (imageData.length + SkinNetworking.SKIN_CHUNK_SIZE - 1)
                             / SkinNetworking.SKIN_CHUNK_SIZE;
@@ -305,6 +338,7 @@ public class SkinClient {
             } catch (Exception e) {
                 client.execute(() -> {
                     if (requestId == applyRequestId && client.player != null) {
+                        PENDING_LOCAL_SKIN_SOURCES.remove(playerUuid);
                         client.player.sendMessage(
                                 net.minecraft.text.Text.translatable(
                                         "command.multi-skin.skin.upload_error", e.getMessage()),
@@ -401,6 +435,8 @@ public class SkinClient {
         SKIN_MODELS.remove(playerUuid);
         SKIN_URLS.remove(playerUuid);
         SKIN_HEIGHTS.remove(playerUuid);
+        LOCAL_SKIN_SOURCES.remove(playerUuid);
+        PENDING_LOCAL_SKIN_SOURCES.remove(playerUuid);
 
         if (texture != null) {
             MinecraftClient.getInstance().getTextureManager().destroyTexture(texture);

@@ -18,6 +18,8 @@ import net.multiskin.skin.size.SizeManager;
 import net.minecraft.util.Formatting;
 import org.lwjgl.glfw.GLFW;
 
+import java.nio.file.Files;
+import java.util.List;
 import java.nio.file.Path;
 
 public class SkinEditorScreen extends Screen {
@@ -31,6 +33,8 @@ public class SkinEditorScreen extends Screen {
     private final SkinLibrary.SkinEntry editing;
     private final Path targetFolder;
     private String selectedImagePath;
+    private String nameValue;
+    private int heightCm;
 
     private TextFieldWidget nameField;
     private TextFieldWidget urlField;
@@ -57,6 +61,8 @@ public class SkinEditorScreen extends Screen {
         this.parent = parent;
         this.editing = editing;
         this.targetFolder = targetFolder;
+        this.nameValue = editing == null ? "" : editing.name();
+        this.heightCm = editing == null ? SizeManager.DEFAULT_HEIGHT_CM : editing.heightCm();
 
         this.slim = editing != null && editing.model().equalsIgnoreCase("slim");
         this.keyCode = editing == null ? -1 : editing.keyCode();
@@ -73,10 +79,7 @@ public class SkinEditorScreen extends Screen {
         nameField = new TextFieldWidget(this.textRenderer, formLeft, layoutTop + 32, 180, 20,
                 Text.translatable("screen.multi-skin.skin_editor.name"));
         nameField.setMaxLength(64);
-
-        if (editing != null) {
-            nameField.setText(editing.name());
-        }
+        nameField.setText(nameValue);
 
         addDrawableChild(nameField);
         browseButton = ButtonWidget.builder(Text.literal("📁"), button -> openImageFilePicker())
@@ -97,8 +100,7 @@ public class SkinEditorScreen extends Screen {
 
         addDrawableChild(urlField);
 
-        int initialHeight = editing == null ? SizeManager.DEFAULT_HEIGHT_CM : editing.heightCm();
-        heightSlider = new HeightSliderWidget(formLeft, layoutTop + 94, 180, 20, initialHeight);
+        heightSlider = new HeightSliderWidget(formLeft, layoutTop + 94, 180, 20, heightCm);
         addDrawableChild(heightSlider);
 
         addDrawableChild(ButtonWidget.builder(modelText(), button -> {
@@ -123,6 +125,8 @@ public class SkinEditorScreen extends Screen {
     }
 
     private void openImageFilePicker() {
+        nameValue = nameField.getText();
+        heightCm = heightSlider.getHeightCm();
         String source = urlField.getText().trim();
         Path startingPath = MinecraftClient.getInstance().runDirectory.toPath();
         if (!source.isEmpty() && !SkinImageSource.isRemote(source)) {
@@ -138,6 +142,19 @@ public class SkinEditorScreen extends Screen {
                     selectedImagePath = path.toAbsolutePath().normalize().toString();
                 })
         );
+    }
+
+    @Override
+    public void filesDragged(List<Path> paths) {
+        if (paths.size() != 1 || !Files.isRegularFile(paths.getFirst())) {
+            errorMessage = Text.translatable(
+                    "screen.multi-skin.skin_editor.browse_invalid_path").getString();
+            return;
+        }
+
+        selectedImagePath = paths.getFirst().toAbsolutePath().normalize().toString();
+        urlField.setText(selectedImagePath);
+        errorMessage = null;
     }
 
     private void save() {
