@@ -3,20 +3,19 @@ package net.multiskin.skin.screen;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
-import net.minecraft.client.gui.screen.ingame.InventoryScreen;
 import net.minecraft.client.gui.widget.ButtonWidget;
 import net.minecraft.client.gui.widget.TextFieldWidget;
+import net.minecraft.client.util.SkinTextures;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
+import com.mojang.authlib.GameProfile;
 import net.minecraft.text.Text;
 import net.minecraft.util.Identifier;
 import net.multiskin.MultiSkinMod;
-import net.multiskin.bodyparts.BodyPartClient;
+import net.multiskin.skin.fastchoose.SkinPreviewRenderer;
 import net.multiskin.skin.SkinClient;
 import net.multiskin.skin.SkinNetworking;
 import net.multiskin.skin.size.SizeManager;
 import org.lwjgl.glfw.GLFW;
-import org.joml.Quaternionf;
-import org.joml.Vector3f;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -28,7 +27,11 @@ import java.util.Map;
 import java.util.Set;
 
 public class SkinScreen extends Screen {
+    private static final int FAST_CHOOSE_SLOTS_PER_PAGE = 8;
+    private static final int FAST_CHOOSE_BASE_SLOT_SIZE = 48;
+    private static final int FAST_CHOOSE_BASE_WHEEL_RADIUS = 82;
     private final MinecraftClient client = MinecraftClient.getInstance();
+    private final Screen parentScreen;
     private SkinLibrary.SkinEntry selectedSkin;
     private SkinLibrary.SkinEntry lastRequestedSkin;
     private Path selectedFolder;
@@ -39,6 +42,10 @@ public class SkinScreen extends Screen {
 
     private float previewYaw = 150.0F;
     private boolean rotatingPreview = false;
+    private boolean configuringFastChoose;
+    private boolean suppressSelectedSkinApplication;
+    private boolean fastChooseButtonPressed;
+    private int fastChoosePage;
 
     private Path draggingPath;
     private Path dragTargetFolder;
@@ -48,6 +55,7 @@ public class SkinScreen extends Screen {
     private double dragStartX;
     private double dragStartY;
     private TextFieldWidget searchField;
+    private ButtonWidget fastChooseButton;
     private static String searchText = "";
     private static String searchTextLower = "";
     private final Map<Path, Boolean> searchMatchCache = new HashMap<>();
@@ -62,11 +70,17 @@ public class SkinScreen extends Screen {
     private int contextMenuY;
 
     public SkinScreen() {
+        this(null);
+    }
+
+    public SkinScreen(Screen parentScreen) {
         super(Text.translatable("screen.multi-skin.skin.title"));
+        this.parentScreen = parentScreen;
         openedFolders.add(SkinLibrary.getRoot());
     }
 
-    public static void initialize() {}
+    public static void initialize() {
+    }
 
     protected void init() {
         super.init();
@@ -91,16 +105,38 @@ public class SkinScreen extends Screen {
         searchTextLower = searchText.toLowerCase();
         addDrawableChild(searchField);
 
+        int bottomButtonY = this.height - 35;
+        int buttonPanelLeft = this.width / 2 + 10;
+        int buttonPanelWidth = Math.max(3, this.width - 15 - buttonPanelLeft - 10);
+        float buttonScale = Math.min(1.0F, buttonPanelWidth / 285.0F);
+        int configButtonWidth = Math.max(1, Math.round(100 * buttonScale));
+        int refreshButtonWidth = Math.max(1, Math.round(90 * buttonScale));
+        int resetButtonWidth = Math.max(1, Math.round(85 * buttonScale));
+        int buttonGap = Math.min(5, Math.max(0, (buttonPanelWidth - configButtonWidth - refreshButtonWidth - resetButtonWidth) / 2));
+        int refreshButtonX = buttonPanelLeft + configButtonWidth + buttonGap;
+        int resetButtonX = refreshButtonX + refreshButtonWidth + buttonGap;
+
+        fastChooseButton = ButtonWidget.builder(fastChooseButtonText(), button -> {
+            configuringFastChoose = !configuringFastChoose;
+            if (configuringFastChoose) {
+                suppressSelectedSkinApplication = true;
+            }
+            fastChoosePage = 0;
+            button.setMessage(fastChooseButtonText());
+        }).dimensions(buttonPanelLeft, bottomButtonY, configButtonWidth, 20).build();
+        buttons.add(fastChooseButton);
+        addDrawableChild(fastChooseButton);
+
         ButtonWidget refreshButton = ButtonWidget.builder(
                         Text.translatable("screen.multi-skin.skin.refresh"),
                         button -> SkinClient.refreshSkins()
                 )
-                .dimensions(this.width - 200, this.height - 35, 90, 20).build();
+                .dimensions(refreshButtonX, bottomButtonY, refreshButtonWidth, 20).build();
         buttons.add(refreshButton);
         addDrawableChild(refreshButton);
 
         ButtonWidget resetButton = ButtonWidget.builder(Text.translatable("screen.multi-skin.skin.reset"), button -> resetSkin())
-                .dimensions(this.width - 100, this.height - 35, 85, 20).build();
+                .dimensions(resetButtonX, bottomButtonY, resetButtonWidth, 20).build();
 
         buttons.add(resetButton);
         addDrawableChild(resetButton);
@@ -116,7 +152,11 @@ public class SkinScreen extends Screen {
         int bottom = this.height - TREE_BOTTOM_OFFSET;
 
         context.fill(left - 5, top - 5, left + width, bottom, 0xFF202020);
-        drawPreview(context);
+        if (configuringFastChoose) {
+            drawFastChooseWheel(context, mouseX, mouseY);
+        } else {
+            drawPreview(context);
+        }
 
         if (dragging && draggingPath != null) {
             String name = getDisplayName(draggingPath);
@@ -287,10 +327,6 @@ public class SkinScreen extends Screen {
     }
 
     private void drawPreview(DrawContext context) {
-        if (client == null || client.player == null) {
-            return;
-        }
-
         int left = this.width / 2 + 10;
         int right = this.width - 15;
         int top = 25;
@@ -309,6 +345,12 @@ public class SkinScreen extends Screen {
             previewModel = selectedSkin.model().equalsIgnoreCase("slim") ? "Slim" : "Steve";
             previewHeightCm = selectedSkin.heightCm();
 
+        } else if (client.player == null) {
+            previewName = client.getSession().getUsername();
+            SkinTextures skinTextures = getOfflineSkinTextures();
+            previewModel = skinTextures.model() == SkinTextures.Model.SLIM ? "Slim" : "Steve";
+            previewHeightCm = SizeManager.DEFAULT_HEIGHT_CM;
+
         } else {
             previewName = client.player.getName().getString();
             previewModel = client.player.getSkinTextures().model() == net.minecraft.client.util.SkinTextures.Model.SLIM ? "Slim" : "Steve";
@@ -319,9 +361,7 @@ public class SkinScreen extends Screen {
         context.drawText(this.textRenderer, previewName, left + (panelWidth - nameWidth) / 2, top + 4, 0xFFFFFFFF, true);
 
         Text previewModelLabel = Text.translatable("screen.multi-skin.skin.preview_model",
-                Text.translatable(previewModel.equals("Slim")
-                        ? "screen.multi-skin.skin_editor.model.slim"
-                        : "screen.multi-skin.skin_editor.model.steve"),
+                Text.translatable(previewModel.equals("Slim") ? "screen.multi-skin.skin_editor.model.slim" : "screen.multi-skin.skin_editor.model.steve"),
                 previewHeightCm);
         int previewModelLabelWidth = this.textRenderer.getWidth(previewModelLabel);
         context.drawText(this.textRenderer, previewModelLabel,
@@ -331,48 +371,37 @@ public class SkinScreen extends Screen {
         int previewHeight = bottom - previewTop;
         int centerX = (left + right) / 2;
 
-        int size = (int) (Math.min(panelWidth, previewHeight) * 0.42F
-                * (previewHeightCm / (float) SizeManager.DEFAULT_HEIGHT_CM));
-        size = Math.max(45, size);
-
-        int entityY = bottom - 10;
-        int estimatedTop = entityY - (int) (size * 2.0F);
-        int minimumTop = previewTop + 4;
-        if (estimatedTop < minimumTop) {
-            entityY += minimumTop - estimatedTop;
-        }
-        float yaw = (float) Math.toRadians(previewYaw);
-
-        Quaternionf rotation = new Quaternionf().rotateZ((float) Math.PI).rotateY(yaw);
-        Quaternionf cameraRotation = new Quaternionf().rotateX(0);
-
-        float oldYaw = client.player.getYaw();
-        float oldPitch = client.player.getPitch();
-        float oldHeadYaw = client.player.headYaw;
-        float oldBodyYaw = client.player.bodyYaw;
-
-        client.player.setYaw(0.0F);
-        client.player.setPitch(0.0F);
-        client.player.headYaw = 0.0F;
-        client.player.bodyYaw = 0.0F;
-
         context.enableScissor(left, previewTop, right, bottom);
-        int previewEntityY = entityY;
-        int previewEntitySize = size;
-        if (selectedSkin == null) {
-            InventoryScreen.drawEntity(context, centerX, previewEntityY, previewEntitySize,
-                    new Vector3f(0.0F, 0.0F, 0.0F), rotation, cameraRotation, client.player);
-        } else {
-            BodyPartClient.withPreviewMask(selectedSkin.removedPartsMask(), () ->
-                    InventoryScreen.drawEntity(context, centerX, previewEntityY, previewEntitySize,
-                            new Vector3f(0.0F, 0.0F, 0.0F), rotation, cameraRotation, client.player));
+        try {
+            float yaw = previewYaw;
+            if (selectedSkin == null) {
+                if (client.player == null) {
+                    SkinTextures skinTextures = getOfflineSkinTextures();
+                    SkinPreviewRenderer.draw(
+                            context,
+                            skinTextures.texture(),
+                            skinTextures.model() == SkinTextures.Model.SLIM ? "slim" : "steve",
+                            centerX,
+                            previewTop,
+                            panelWidth,
+                            previewHeight,
+                            previewHeightCm,
+                            yaw
+                    );
+                } else {
+                    SkinPreviewRenderer.draw(context, client.player, centerX, previewTop, panelWidth, previewHeight, previewHeightCm, yaw);
+                }
+            } else {
+                SkinPreviewRenderer.draw(
+                        context, selectedSkin, centerX, previewTop, panelWidth, previewHeight, yaw);
+            }
+        } finally {
+            context.disableScissor();
         }
-        context.disableScissor();
+    }
 
-        client.player.setYaw(oldYaw);
-        client.player.setPitch(oldPitch);
-        client.player.headYaw = oldHeadYaw;
-        client.player.bodyYaw = oldBodyYaw;
+    private SkinTextures getOfflineSkinTextures() {
+        return client.getSkinProvider().getSkinTextures(new GameProfile(client.getSession().getUuidOrNull(), client.getSession().getUsername()));
     }
 
     private boolean isInsidePreview(double mouseX, double mouseY) {
@@ -384,8 +413,170 @@ public class SkinScreen extends Screen {
         return mouseX >= left && mouseX <= right && mouseY >= top && mouseY <= bottom;
     }
 
+    private boolean isInsideRightPanel(double mouseX, double mouseY) {
+        return mouseX >= this.width / 2 + 10 && mouseX <= this.width - 15 && mouseY >= 20 && mouseY <= this.height - 45;
+    }
+
+    private void drawFastChooseWheel(DrawContext context, int mouseX, int mouseY) {
+        int panelLeft = this.width / 2 + 10;
+        int panelRight = this.width - 15;
+        int panelTop = 25;
+        int panelBottom = this.height - 45;
+
+        int centerX = getFastChooseCenterX();
+        int centerY = getFastChooseCenterY();
+        int radius = getFastChooseWheelRadius();
+        float wheelScale = getFastChooseScale();
+        int slotSize = getFastChooseSlotSize();
+        int pageCount = Math.max(fastChoosePage + 1, SkinLibrary.getFastChoosePageCount());
+        context.drawCenteredTextWithShadow(
+                this.textRenderer, Text.literal("‹"), centerX - 24, centerY - 4,
+                fastChoosePage > 0 ? 0xFFFFFFFF : 0xFF777777);
+        context.drawCenteredTextWithShadow(
+                this.textRenderer, Text.literal(Integer.toString(fastChoosePage + 1)),
+                centerX, centerY - 4, 0xFFFFFFFF);
+        context.drawCenteredTextWithShadow(
+                this.textRenderer, Text.literal("›"), centerX + 24, centerY - 4, 0xFFFFFFFF);
+        context.drawCenteredTextWithShadow(
+                this.textRenderer,
+                Text.translatable("screen.multi-skin.skin.fast_choose.page_count", pageCount),
+                centerX,
+                centerY + 10,
+                0xFFAAAAAA
+        );
+
+        List<SkinLibrary.SkinEntry> assignedSkins = SkinLibrary.getFastChooseSkins();
+        for (int slot = 0; slot < FAST_CHOOSE_SLOTS_PER_PAGE; slot++) {
+            double angle = -Math.PI / 2 + slot * (Math.PI * 2 / FAST_CHOOSE_SLOTS_PER_PAGE);
+            int slotCenterX = centerX + (int) (Math.cos(angle) * radius);
+            int slotCenterY = centerY + (int) (Math.sin(angle) * radius);
+            int position = fastChoosePage * FAST_CHOOSE_SLOTS_PER_PAGE + slot;
+            SkinLibrary.SkinEntry skin = assignedSkins.stream()
+                    .filter(entry -> entry.fastChooseOrder() == position)
+                    .findFirst()
+                    .orElse(null);
+            drawFastChooseSlot(context, skin, slotCenterX, slotCenterY, slotSize, wheelScale, mouseX, mouseY);
+        }
+
+        Text hint = selectedSkin == null
+                ? Text.translatable("screen.multi-skin.skin.fast_choose.select_skin")
+                : Text.translatable("screen.multi-skin.skin.fast_choose.assign_skin", selectedSkin.name());
+        context.drawCenteredTextWithShadow(this.textRenderer, hint, centerX, panelBottom - 12, 0xFFCCCCCC);
+    }
+
+    private void drawFastChooseSlot(DrawContext context, SkinLibrary.SkinEntry skin, int centerX, int centerY, int slotSize, float wheelScale, int mouseX, int mouseY) {
+        int left = centerX - slotSize / 2;
+        int top = centerY - slotSize / 2;
+        boolean hovered = mouseX >= left && mouseX < left + slotSize && mouseY >= top && mouseY < top + slotSize;
+        SkinPreviewRenderer.drawSlotBackground(context, centerX, centerY, slotSize, hovered);
+        if (skin == null) {
+            return;
+        }
+
+        SkinPreviewRenderer.draw(context, skin, centerX, top, slotSize);
+        String name = this.textRenderer.trimToWidth(skin.name(), slotSize - 4);
+        float textWidth = this.textRenderer.getWidth(skin.name());
+        float nameScale = Math.min(wheelScale, (slotSize - 4) / Math.max(1.0F, textWidth));
+        nameScale = Math.max(wheelScale * 0.65F, nameScale);
+        int availableTextWidth = Math.max(1, (int) ((slotSize - 4) / nameScale));
+        name = this.textRenderer.trimToWidth(skin.name(), availableTextWidth);
+        int nameY = top + slotSize - Math.round(8 * wheelScale);
+        context.getMatrices().push();
+        context.getMatrices().translate(centerX, nameY, 0);
+        context.getMatrices().scale(nameScale, nameScale, 1.0F);
+        context.drawCenteredTextWithShadow(this.textRenderer, Text.literal(name), 0, 0, 0xFFFFFFFF);
+        context.getMatrices().pop();
+    }
+
+    private boolean handleFastChooseClick(double mouseX, double mouseY, int button) {
+        int centerX = getFastChooseCenterX();
+        int centerY = getFastChooseCenterY();
+        if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT && mouseY >= centerY - 18 && mouseY < centerY + 18) {
+            if (mouseX >= centerX - 36 && mouseX < centerX - 12) {
+                fastChoosePage = Math.max(0, fastChoosePage - 1);
+                return true;
+            }
+            if (mouseX >= centerX + 12 && mouseX < centerX + 36) {
+                fastChoosePage++;
+                return true;
+            }
+        }
+
+        int radius = getFastChooseWheelRadius();
+        int slotSize = getFastChooseSlotSize();
+        for (int slot = 0; slot < FAST_CHOOSE_SLOTS_PER_PAGE; slot++) {
+            double angle = -Math.PI / 2 + slot * (Math.PI * 2 / FAST_CHOOSE_SLOTS_PER_PAGE);
+            int slotCenterX = centerX + (int) (Math.cos(angle) * radius);
+            int slotCenterY = centerY + (int) (Math.sin(angle) * radius);
+            int left = slotCenterX - slotSize / 2;
+            int top = slotCenterY - slotSize / 2;
+            if (mouseX < left || mouseX >= left + slotSize || mouseY < top || mouseY >= top + slotSize) {
+                continue;
+            }
+
+            int position = fastChoosePage * FAST_CHOOSE_SLOTS_PER_PAGE + slot;
+            try {
+                if (button == GLFW.GLFW_MOUSE_BUTTON_RIGHT) {
+                    SkinLibrary.clearFastChoosePosition(position);
+                    SkinSounds.click();
+                    return true;
+                }
+                if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT && selectedSkin != null) {
+                    selectedSkin = SkinLibrary.setFastChoosePosition(selectedSkin, position);
+                    SkinSounds.click();
+                    return true;
+                }
+            } catch (Exception e) {
+                MultiSkinMod.LOGGER.error("Impossible de modifier l'emplacement dans la roue rapide.", e);
+            }
+            return true;
+        }
+        return true;
+    }
+
+    private int getFastChooseWheelRadius() {
+        return Math.round(FAST_CHOOSE_BASE_WHEEL_RADIUS * getFastChooseScale());
+    }
+
+    private int getFastChooseSlotSize() {
+        return Math.max(20, Math.round(FAST_CHOOSE_BASE_SLOT_SIZE * getFastChooseScale()));
+    }
+
+    private float getFastChooseScale() {
+        int panelWidth = this.width / 2 - 25;
+        int contentTop = 25;
+        int contentBottom = this.height - 45 - 20;
+        int panelHeight = Math.max(1, contentBottom - contentTop);
+        int availableRadius = Math.max(20, Math.min(panelWidth / 2 - 1, panelHeight / 2 - 1));
+        float baseExtent = FAST_CHOOSE_BASE_WHEEL_RADIUS + FAST_CHOOSE_BASE_SLOT_SIZE / 2.0F;
+        return Math.min(1.65F, availableRadius / baseExtent);
+    }
+
+    private int getFastChooseCenterX() {
+        int panelLeft = this.width / 2 + 10;
+        int panelRight = this.width - 15;
+        return (panelLeft + panelRight) / 2;
+    }
+
+    private int getFastChooseCenterY() {
+        int panelTop = 25;
+        int panelBottom = this.height - 45;
+        int contentTop = panelTop;
+        int contentBottom = panelBottom - 20;
+        return (contentTop + contentBottom) / 2;
+    }
+
+    private Text fastChooseButtonText() {
+        return Text.translatable(configuringFastChoose ? "screen.multi-skin.skin.fast_choose.close" : "screen.multi-skin.skin.fast_choose.configure");
+    }
+
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
+        if (configuringFastChoose && isInsideRightPanel(mouseX, mouseY) && verticalAmount != 0) {
+            fastChoosePage = Math.max(0, fastChoosePage + (verticalAmount > 0 ? -1 : 1));
+            return true;
+        }
+
         int left = 15;
         int width = this.width / 2 - 25;
         int top = 59;
@@ -482,11 +673,15 @@ public class SkinScreen extends Screen {
                         switch (option) {
                             case 0 -> {
                                 SkinLibrary.SkinEntry skin = contextMenuSkin;
-
                                 if (SkinClient.isThumbnailValid(skin.file())) {
                                     selectedSkin = skin;
                                     SkinSounds.click();
-                                    applySelectedSkin();
+                                    if (configuringFastChoose) {
+                                        suppressSelectedSkinApplication = true;
+                                    } else {
+                                        suppressSelectedSkinApplication = false;
+                                        applySelectedSkin();
+                                    }
                                 }
 
                                 closeContextMenu();
@@ -533,6 +728,19 @@ public class SkinScreen extends Screen {
             return true;
         }
 
+        if (fastChooseButton != null
+                && mouseX >= fastChooseButton.getX()
+                && mouseX < fastChooseButton.getX() + fastChooseButton.getWidth()
+                && mouseY >= fastChooseButton.getY()
+                && mouseY < fastChooseButton.getY() + fastChooseButton.getHeight()) {
+            fastChooseButtonPressed = button == GLFW.GLFW_MOUSE_BUTTON_LEFT;
+            return super.mouseClicked(mouseX, mouseY, button);
+        }
+
+        if (configuringFastChoose && isInsideRightPanel(mouseX, mouseY)) {
+            return handleFastChooseClick(mouseX, mouseY, button);
+        }
+
         if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT && isInsidePreview(mouseX, mouseY)) {
             rotatingPreview = true;
             return true;
@@ -558,10 +766,6 @@ public class SkinScreen extends Screen {
                     if (skin != null) {
                         selectedSkin = skin;
                         selectedFolder = null;
-
-                        if (SkinClient.isThumbnailValid(row.path())) {
-                            SkinClient.loadPreviewSkin(skin.url(), skin.model());
-                        }
 
                         openContextMenu(skin, (int) mouseX, (int) mouseY);
 
@@ -616,8 +820,7 @@ public class SkinScreen extends Screen {
             return true;
         }
 
-        if (draggingPath != null
-                        && button == 0) {
+        if (draggingPath != null && button == 0) {
             if (!dragging) {
                 double distanceX = mouseX - dragStartX;
                 double distanceY = mouseY - dragStartY;
@@ -639,6 +842,11 @@ public class SkinScreen extends Screen {
 
     @Override
     public boolean mouseReleased(double mouseX, double mouseY, int button) {
+        if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT && fastChooseButtonPressed) {
+            fastChooseButtonPressed = false;
+            return super.mouseReleased(mouseX, mouseY, button);
+        }
+
         if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT && rotatingPreview) {
             rotatingPreview = false;
             return true;
@@ -675,8 +883,7 @@ public class SkinScreen extends Screen {
                     selectedFolder = null;
 
                     SkinSounds.click();
-
-                    SkinClient.loadPreviewSkin(skin.url(), skin.model());
+                    suppressSelectedSkinApplication = configuringFastChoose;
                 }
             }
 
@@ -807,7 +1014,7 @@ public class SkinScreen extends Screen {
         return null;
     }
 
-    private record TreeRow(Path path, int y) {}
+    private record TreeRow(Path path, int y) { }
 
     private boolean isAppliedSkin(SkinLibrary.SkinEntry skin) {
         if (skin == null || client.player == null) {
@@ -931,7 +1138,6 @@ public class SkinScreen extends Screen {
                 .equals(oldSkin.file().toAbsolutePath().normalize())) {
             selectedSkin = updatedSkin;
             SkinClient.clearPreview();
-            SkinClient.loadPreviewSkin(updatedSkin.url(), updatedSkin.model());
         }
         searchMatchCache.clear();
         invalidateTreeLayout();
@@ -941,21 +1147,20 @@ public class SkinScreen extends Screen {
     public void close() {
         SkinClient.clearPreview();
         applySelectedSkin();
-        super.close();
+        if (parentScreen == null) {
+            super.close();
+        } else {
+            client.setScreen(parentScreen);
+        }
     }
 
     private void applySelectedSkin() {
-        if (selectedSkin == null || selectedSkin.equals(lastRequestedSkin)) {
+        if (configuringFastChoose || suppressSelectedSkinApplication || selectedSkin == null || selectedSkin.equals(lastRequestedSkin)) {
             return;
         }
 
         if (client.player != null && client.player.networkHandler != null) {
-            SkinClient.applySkinSource(
-                    selectedSkin.url(),
-                    selectedSkin.model(),
-                    selectedSkin.heightCm(),
-                    selectedSkin.removedPartsMask()
-            );
+            SkinClient.applySkinSource(selectedSkin.url(), selectedSkin.model(), selectedSkin.heightCm(), selectedSkin.removedPartsMask());
             lastRequestedSkin = selectedSkin;
         }
     }

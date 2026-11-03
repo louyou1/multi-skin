@@ -13,21 +13,15 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 @Mixin(PlayerEntityModel.class)
 public abstract class PlayerEntityModelMixin {
     @Inject(method = "setAngles(Lnet/minecraft/entity/LivingEntity;FFFFF)V", at = @At("TAIL"))
-    private void multiskin$hideMissingOverlays(
-            LivingEntity entity,
-            float limbAngle,
-            float limbDistance,
-            float animationProgress,
-            float headYaw,
-            float headPitch,
-            CallbackInfo ci
-    ) {
+    private void multiskin$hideMissingOverlays(LivingEntity entity, float limbAngle, float limbDistance, float animationProgress, float headYaw, float headPitch, CallbackInfo ci) {
         if (!(entity instanceof AbstractClientPlayerEntity player)) {
             return;
         }
 
         int mask = BodyPartClient.getMask(player.getUuid());
         PlayerEntityModel<?> model = (PlayerEntityModel<?>)(Object)this;
+        model.hat.visible = true;
+        model.jacket.visible = true;
         model.rightSleeve.visible = (mask & BodyPart.RIGHT_ARM.mask()) == 0;
         model.leftSleeve.visible = (mask & BodyPart.LEFT_ARM.mask()) == 0;
         model.rightPants.visible = (mask & BodyPart.RIGHT_LEG.mask()) == 0;

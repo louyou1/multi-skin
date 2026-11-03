@@ -5,6 +5,7 @@
   "group.multi-skin.multiskin_mod_icon": "Multi-Skin Mod Icon",
 
   "key.multi-skin.skin_menu": "Skin Menu",
+  "key.multi-skin.fast_choose": "Fast skin selection (hold)",
   "key.categories.multi-skin": "Multi-Skin Mod",
 
   "screen.multi-skin.skin_editor.new_title": "New skin",
@@ -77,6 +78,18 @@
   "screen.multi-skin.folder_editor.folder_name": "Folder name",
 
   "screen.multi-skin.skin.title": "Multi-Skin Skins",
+  "screen.multi-skin.open_skin_menu": "Manage skins",
+  "screen.multi-skin.fast_choose.title": "Fast selection",
+  "screen.multi-skin.fast_choose.page": "%s / %s",
+  "screen.multi-skin.fast_choose.hint": "Click a skin • Release ALT to close",
+  "screen.multi-skin.fast_choose.empty": "No skins assigned",
+  "screen.multi-skin.skin.fast_choose.title": "Configure fast wheel",
+  "screen.multi-skin.skin.fast_choose.configure": "Fast wheel",
+  "screen.multi-skin.skin.fast_choose.close": "Close wheel",
+  "screen.multi-skin.skin.fast_choose.page_count": "%s page(s)",
+  "screen.multi-skin.skin.fast_choose.empty_slot": "Empty",
+  "screen.multi-skin.skin.fast_choose.select_skin": "Select a skin on the left",
+  "screen.multi-skin.skin.fast_choose.assign_skin": "Click a slot to place %s",
   "screen.multi-skin.skin.search": "Search",
   "screen.multi-skin.skin.search_placeholder": "Search for a skin...",
   "screen.multi-skin.skin.refresh": "Refresh",

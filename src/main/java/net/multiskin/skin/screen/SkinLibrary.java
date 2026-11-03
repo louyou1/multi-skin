@@ -23,24 +23,15 @@ import java.util.Set;
 public class SkinLibrary {
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
     private static final String ORDER_FILE = ".order.json";
+    private static final String FAST_CHOOSE_MIGRATION_FILE = ".fast_choose_slots_v1";
     private static final class RootHolder {
-        private static final Path ROOT = MinecraftClient.getInstance().runDirectory.toPath()
-                .resolve("multi-skin")
-                .resolve("skins");
+        private static final Path ROOT = MinecraftClient.getInstance().runDirectory.toPath().resolve("multi-skin").resolve("skins");
     }
     private static Map<String, List<String>> cachedOrders;
     private static final Map<Path, SkinEntry> skinCache = new HashMap<>();
     private static final Map<Path, List<Path>> contentsCache = new HashMap<>();
 
-    public record SkinEntry(
-            Path file,
-            String name,
-            String url,
-            String model,
-            int heightCm,
-            int keyCode,
-            int removedPartsMask
-    ) {}
+    public record SkinEntry(Path file, String name, String url, String model, int heightCm, int keyCode, int removedPartsMask, int fastChooseOrder) {}
 
     public static Path getRoot() {
         return root();
@@ -52,8 +43,7 @@ public class SkinLibrary {
 
     private static void invalidateSkinCache(Path path) {
         Path normalizedPath = path.toAbsolutePath().normalize();
-        skinCache.keySet().removeIf(cachedPath ->
-                cachedPath.equals(normalizedPath) || cachedPath.startsWith(normalizedPath));
+        skinCache.keySet().removeIf(cachedPath -> cachedPath.equals(normalizedPath) || cachedPath.startsWith(normalizedPath));
     }
 
     public static void initialize() {
@@ -70,10 +60,25 @@ public class SkinLibrary {
             } else {
                 repairOrder();
             }
+            migrateFastChooseSlots();
 
         } catch (IOException e) {
             MultiSkinMod.LOGGER.error("Impossible d'initialiser la bibliothèque.", e);
         }
+    }
+
+    private static void migrateFastChooseSlots() throws IOException {
+        Path marker = root().getParent().resolve(FAST_CHOOSE_MIGRATION_FILE);
+        if (Files.exists(marker)) {
+            return;
+        }
+
+        for (SkinEntry skin : getAllSkins()) {
+            if (skin.fastChooseOrder() >= 0) {
+                updateFastChooseOrder(skin, -1);
+            }
+        }
+        Files.createFile(marker);
     }
 
     private static void createInitialOrder() throws IOException {
@@ -552,15 +557,11 @@ public class SkinLibrary {
         saveSkin(folder, name, url, model, heightCm, keyCode, 0);
     }
 
-    public static void saveSkin(
-            Path folder,
-            String name,
-            String url,
-            String model,
-            int heightCm,
-            int keyCode,
-            int removedPartsMask
-    ) throws IOException {
+    public static void saveSkin(Path folder, String name, String url, String model, int heightCm, int keyCode, int removedPartsMask) throws IOException {
+        saveSkin(folder, name, url, model, heightCm, keyCode, removedPartsMask, -1);
+    }
+
+    public static void saveSkin(Path folder, String name, String url, String model, int heightCm, int keyCode, int removedPartsMask, int fastChooseOrder) throws IOException {
         Files.createDirectories(folder);
 
         String safeName = sanitizeName(name);
@@ -576,21 +577,21 @@ public class SkinLibrary {
         order.add(file.getFileName().toString());
 
         saveOrders(orders);
+        SkinEntry savedSkin = loadSkinOrThrow(file);
+        if (fastChooseOrder >= 0) {
+            reorderFastChooseSkin(savedSkin, fastChooseOrder);
+        }
     }
 
     public static SkinEntry updateSkin(SkinEntry oldSkin, String name, String url, String model, int heightCm, int keyCode) throws IOException {
-        return updateSkin(oldSkin, name, url, model, heightCm, keyCode, oldSkin.removedPartsMask());
+        return updateSkin(oldSkin, name, url, model, heightCm, keyCode, oldSkin.removedPartsMask(), getFastChoosePosition(oldSkin));
     }
 
-    public static SkinEntry updateSkin(
-            SkinEntry oldSkin,
-            String name,
-            String url,
-            String model,
-            int heightCm,
-            int keyCode,
-            int removedPartsMask
-    ) throws IOException {
+    public static SkinEntry updateSkin(SkinEntry oldSkin, String name, String url, String model, int heightCm, int keyCode, int removedPartsMask) throws IOException {
+        return updateSkin(oldSkin, name, url, model, heightCm, keyCode, removedPartsMask, getFastChoosePosition(oldSkin));
+    }
+
+    public static SkinEntry updateSkin(SkinEntry oldSkin, String name, String url, String model, int heightCm, int keyCode, int removedPartsMask, int fastChooseOrder) throws IOException {
         Path oldFile = oldSkin.file();
         Path folder = oldFile.getParent();
 
@@ -635,8 +636,76 @@ public class SkinLibrary {
 
         saveOrders(orders);
         invalidateSkinCache(oldFile);
-        invalidateSkinCache(newFile);
-        return new SkinEntry(newFile, name, url, model, heightCm, keyCode, removedPartsMask & 0xF);
+        return reorderFastChooseSkin(loadSkinOrThrow(newFile), fastChooseOrder);
+    }
+
+    public static int getFastChoosePosition(SkinEntry skin) {
+        return skin.fastChooseOrder();
+    }
+
+    public static List<SkinEntry> getFastChooseSkins() {
+        List<SkinEntry> skins = new ArrayList<>(getAllSkins().stream().filter(skin -> skin.fastChooseOrder() >= 0).toList());
+        skins.sort(Comparator.comparingInt(skin -> skin.fastChooseOrder()));
+        return skins;
+    }
+
+    public static SkinEntry getFastChooseSkinAtPosition(int position) {
+        return getFastChooseSkins().stream()
+                .filter(skin -> skin.fastChooseOrder() == position)
+                .findFirst()
+                .orElse(null);
+    }
+
+    public static int getFastChoosePageCount() {
+        return Math.max(1, getFastChooseSkins().stream()
+                .mapToInt(skin -> skin.fastChooseOrder() / 8 + 1)
+                .max()
+                .orElse(1));
+    }
+
+    public static SkinEntry setFastChoosePosition(SkinEntry skin, int position) throws IOException {
+        return reorderFastChooseSkin(skin, position);
+    }
+
+    public static void clearFastChoosePosition(int position) throws IOException {
+        SkinEntry skin = getFastChooseSkinAtPosition(position);
+        if (skin != null) {
+            updateFastChooseOrder(skin, -1);
+        }
+    }
+
+    private static SkinEntry reorderFastChooseSkin(SkinEntry selectedSkin, int targetPosition) throws IOException {
+        Path selectedPath = selectedSkin.file().toAbsolutePath().normalize();
+        List<SkinEntry> skins = getAllSkins();
+        for (SkinEntry skin : skins) {
+            Path skinPath = skin.file().toAbsolutePath().normalize();
+            if (skinPath.equals(selectedPath)) {
+                if (skin.fastChooseOrder() != targetPosition) {
+                    updateFastChooseOrder(skin, targetPosition);
+                }
+            } else if (targetPosition >= 0 && skin.fastChooseOrder() == targetPosition) {
+                updateFastChooseOrder(skin, -1);
+            }
+        }
+        return loadSkinOrThrow(selectedSkin.file());
+    }
+
+    private static void updateFastChooseOrder(SkinEntry skin, int order) throws IOException {
+        JsonObject object = GSON.fromJson(Files.readString(skin.file()), JsonObject.class);
+        if (object == null) {
+            throw new IOException("Impossible de lire le skin " + skin.name() + ".");
+        }
+        object.addProperty("fastChooseOrder", order);
+        Files.writeString(skin.file(), GSON.toJson(object));
+        invalidateSkinCache(skin.file());
+    }
+
+    private static SkinEntry loadSkinOrThrow(Path file) throws IOException {
+        SkinEntry skin = loadSkin(file);
+        if (skin == null) {
+            throw new IOException("Impossible de lire le skin " + file + ".");
+        }
+        return skin;
     }
 
     public static void createFolder(Path parent, String name) throws IOException {
@@ -657,15 +726,7 @@ public class SkinLibrary {
         saveOrders(orders);
     }
 
-    private static void writeSkin(
-            Path file,
-            String name,
-            String url,
-            String model,
-            int heightCm,
-            int keyCode,
-            int removedPartsMask
-    ) throws IOException {
+    private static void writeSkin(Path file, String name, String url, String model, int heightCm, int keyCode, int removedPartsMask) throws IOException {
         JsonObject object = new JsonObject();
 
         object.addProperty("name", name);
@@ -674,6 +735,7 @@ public class SkinLibrary {
         object.addProperty("heightCm", heightCm);
         object.addProperty("keyCode", keyCode);
         object.addProperty("removedPartsMask", removedPartsMask & 0xF);
+        object.addProperty("fastChooseOrder", -1);
 
         Files.writeString(file, GSON.toJson(object));
         invalidateSkinCache(file);
@@ -744,19 +806,12 @@ public class SkinLibrary {
             String name = object.has("name") ? object.get("name").getAsString() : removeExtension(file.getFileName().toString());
             String url = object.has("url") ? object.get("url").getAsString() : "";
             String model = object.has("model") ? object.get("model").getAsString() : "steve";
-            int heightCm = object.has("heightCm")
-                    ? Math.clamp(
-                    object.get("heightCm").getAsInt(),
-                    SizeManager.MIN_HEIGHT_CM,
-                    SizeManager.MAX_HEIGHT_CM
-            )
-                    : SizeManager.DEFAULT_HEIGHT_CM;
+            int heightCm = object.has("heightCm") ? Math.clamp(object.get("heightCm").getAsInt(), SizeManager.MIN_HEIGHT_CM, SizeManager.MAX_HEIGHT_CM) : SizeManager.DEFAULT_HEIGHT_CM;
             int keyCode = object.has("keyCode") ? object.get("keyCode").getAsInt() : -1;
-            int removedPartsMask = object.has("removedPartsMask")
-                    ? object.get("removedPartsMask").getAsInt() & 0xF
-                    : 0;
+            int removedPartsMask = object.has("removedPartsMask") ? object.get("removedPartsMask").getAsInt() & 0xF : 0;
+            int fastChooseOrder = object.has("fastChooseOrder") ? Math.max(-1, object.get("fastChooseOrder").getAsInt()) : -1;
 
-            SkinEntry skin = new SkinEntry(file, name, url, model, heightCm, keyCode, removedPartsMask);
+            SkinEntry skin = new SkinEntry(file, name, url, model, heightCm, keyCode, removedPartsMask, fastChooseOrder);
             skinCache.put(cacheKey, skin);
             return skin;
 
@@ -779,8 +834,7 @@ public class SkinLibrary {
 
         Path excluded = excludedFile == null ? null : excludedFile.toAbsolutePath().normalize();
         for (SkinEntry skin : getAllSkins()) {
-            if (skin.keyCode() == keyCode
-                    && (excluded == null || !skin.file().toAbsolutePath().normalize().equals(excluded))) {
+            if (skin.keyCode() == keyCode && (excluded == null || !skin.file().toAbsolutePath().normalize().equals(excluded))) {
                 return skin;
             }
         }
@@ -813,8 +867,7 @@ public class SkinLibrary {
     }
 
     private static String removeExtension(String name) {
-        int index =
-                name.lastIndexOf('.');
+        int index = name.lastIndexOf('.');
 
         if (index <= 0) {
             return name;
@@ -862,9 +915,7 @@ public class SkinLibrary {
             order.add(index, newName);
 
         } else {
-
-            List<String> oldOrder =
-                    orders.get(oldParentRelative);
+            List<String> oldOrder = orders.get(oldParentRelative);
 
             if (oldOrder != null) {
                 oldOrder.remove(oldName);

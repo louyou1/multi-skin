@@ -30,9 +30,13 @@ public class SkinClient {
     private static final Map<UUID, PendingSkinTransfer> PENDING_SKIN_TRANSFERS = new HashMap<>();
 
     private static final Map<Path, Identifier> SKIN_THUMBNAILS = new HashMap<>();
+    private static final Map<Path, PreviewSkinTexture> PREVIEW_SKIN_TEXTURES = new HashMap<>();
+    private static final Map<Path, String> PREVIEW_SKINS_LOADING = new HashMap<>();
+    private static final Map<Path, String> PREVIEW_SKINS_INVALID = new HashMap<>();
 
     private static final Set<Path> THUMBNAILS_LOADING = new HashSet<>();
     private static final Set<Path> THUMBNAILS_INVALID = new HashSet<>();
+    private static final ThreadLocal<PreviewSkin> RENDER_PREVIEW_SKIN = new ThreadLocal<>();
 
     private static Identifier warningTexture;
 
@@ -69,6 +73,9 @@ public class SkinClient {
     private record CachedSkinTextures(SkinTexturesKey key, SkinTextures value) {}
 
     private record LocalSkinSource(String source, String model, int heightCm) {}
+
+    private record PreviewSkinTexture(String url, Identifier texture) {}
+    private record PreviewSkin(UUID playerUuid, Identifier texture, String model) {}
 
     private record SkinTexturesKey(
             Identifier texture,
@@ -363,6 +370,10 @@ public class SkinClient {
 
     public static Identifier getSkinTexture(UUID playerUuid) {
         MinecraftClient client = MinecraftClient.getInstance();
+        PreviewSkin renderPreview = RENDER_PREVIEW_SKIN.get();
+        if (renderPreview != null && renderPreview.playerUuid().equals(playerUuid)) {
+            return renderPreview.texture();
+        }
         if (previewTexture != null && client.player != null && client.player.getUuid().equals(playerUuid)) {
             return previewTexture;
         }
@@ -371,10 +382,83 @@ public class SkinClient {
 
     public static String getSkinModel(UUID playerUuid) {
         MinecraftClient client = MinecraftClient.getInstance();
+        PreviewSkin renderPreview = RENDER_PREVIEW_SKIN.get();
+        if (renderPreview != null && renderPreview.playerUuid().equals(playerUuid)) {
+            return renderPreview.model();
+        }
         if (previewModel != null && client.player != null && client.player.getUuid().equals(playerUuid)) {
             return previewModel;
         }
         return SKIN_MODELS.get(playerUuid);
+    }
+
+    public static boolean isRenderingSkinPreview(UUID playerUuid) {
+        PreviewSkin renderPreview = RENDER_PREVIEW_SKIN.get();
+        return renderPreview != null && renderPreview.playerUuid().equals(playerUuid);
+    }
+
+    public static void withSkinPreview(UUID playerUuid, Identifier texture, String model, Runnable render) {
+        PreviewSkin previousPreview = RENDER_PREVIEW_SKIN.get();
+        RENDER_PREVIEW_SKIN.set(new PreviewSkin(playerUuid, texture, model));
+        try {
+            render.run();
+        } finally {
+            if (previousPreview == null) {
+                RENDER_PREVIEW_SKIN.remove();
+            } else {
+                RENDER_PREVIEW_SKIN.set(previousPreview);
+            }
+        }
+    }
+
+    public static Identifier getSkinPreviewTexture(Path skinFile, String url) {
+        Path cacheKey = skinFile.toAbsolutePath().normalize();
+        PreviewSkinTexture cached = PREVIEW_SKIN_TEXTURES.get(cacheKey);
+        if (cached != null && cached.url().equals(url)) {
+            return cached.texture();
+        }
+        if (cached != null) {
+            MinecraftClient.getInstance().getTextureManager().destroyTexture(cached.texture());
+            PREVIEW_SKIN_TEXTURES.remove(cacheKey);
+        }
+        if (url.equals(PREVIEW_SKINS_INVALID.get(cacheKey))
+                || url.equals(PREVIEW_SKINS_LOADING.get(cacheKey))) {
+            return null;
+        }
+
+        PREVIEW_SKINS_INVALID.remove(cacheKey);
+        PREVIEW_SKINS_LOADING.put(cacheKey, url);
+        Thread.startVirtualThread(() -> {
+            try {
+                BufferedImage image = SkinImageSource.load(url);
+                byte[] imageData = SkinImageSource.encodePng(image);
+                MinecraftClient.getInstance().execute(() -> {
+                    if (!url.equals(PREVIEW_SKINS_LOADING.get(cacheKey))) {
+                        return;
+                    }
+                    PREVIEW_SKINS_LOADING.remove(cacheKey);
+                    try {
+                        NativeImage nativeImage = NativeImage.read(new ByteArrayInputStream(imageData));
+                        NativeImageBackedTexture texture = new NativeImageBackedTexture(nativeImage);
+                        Identifier textureId = MinecraftClient.getInstance().getTextureManager()
+                                .registerDynamicTexture("multiskin_preview_" + Integer.toUnsignedString(cacheKey.hashCode()), texture);
+                        PREVIEW_SKIN_TEXTURES.put(cacheKey, new PreviewSkinTexture(url, textureId));
+                    } catch (Exception e) {
+                        PREVIEW_SKINS_INVALID.put(cacheKey, url);
+                        MultiSkinMod.LOGGER.error("Impossible de créer la texture d'aperçu du skin {}.", cacheKey, e);
+                    }
+                });
+            } catch (Exception e) {
+                MinecraftClient.getInstance().execute(() -> {
+                    if (url.equals(PREVIEW_SKINS_LOADING.get(cacheKey))) {
+                        PREVIEW_SKINS_LOADING.remove(cacheKey);
+                        PREVIEW_SKINS_INVALID.put(cacheKey, url);
+                        MultiSkinMod.LOGGER.error("Impossible de charger l'aperçu du skin {}.", cacheKey, e);
+                    }
+                });
+            }
+        });
+        return null;
     }
 
     public static String getAppliedSkinModel(UUID playerUuid) {
@@ -451,6 +535,14 @@ public class SkinClient {
 
         if (texture != null) {
             MinecraftClient.getInstance().getTextureManager().destroyTexture(texture);
+        }
+
+        Path previewKey = skinFile.toAbsolutePath().normalize();
+        PREVIEW_SKINS_LOADING.remove(previewKey);
+        PREVIEW_SKINS_INVALID.remove(previewKey);
+        PreviewSkinTexture previewTexture = PREVIEW_SKIN_TEXTURES.remove(previewKey);
+        if (previewTexture != null) {
+            MinecraftClient.getInstance().getTextureManager().destroyTexture(previewTexture.texture());
         }
     }
 

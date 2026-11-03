@@ -16,10 +16,7 @@ import java.util.Arrays;
 import java.util.BitSet;
 import java.util.HashMap;
 import java.util.Map;
-import java.io.ByteArrayInputStream;
 import java.awt.image.BufferedImage;
-
-import javax.imageio.ImageIO;
 
 public class SkinNetworking {
     public static final int SKIN_CHUNK_SIZE = 24 * 1024;
@@ -51,17 +48,8 @@ public class SkinNetworking {
         }
     }
 
-    public record SkinTransferStartPayload(
-            UUID playerUuid,
-            UUID transferId,
-            String skinUrl,
-            String skinModel,
-            int heightCm,
-            int totalBytes,
-            int chunkCount
-    ) implements CustomPayload {
-        public static final CustomPayload.Id<SkinTransferStartPayload> ID =
-                new CustomPayload.Id<>(Identifier.of(MultiSkinMod.MOD_ID, "skin_transfer_start"));
+    public record SkinTransferStartPayload(UUID playerUuid, UUID transferId, String skinUrl, String skinModel, int heightCm, int totalBytes, int chunkCount) implements CustomPayload {
+        public static final CustomPayload.Id<SkinTransferStartPayload> ID = new CustomPayload.Id<>(Identifier.of(MultiSkinMod.MOD_ID, "skin_transfer_start"));
 
         public static final PacketCodec<PacketByteBuf, SkinTransferStartPayload> CODEC = PacketCodec.of(
                 (payload, buf) -> {
@@ -90,15 +78,8 @@ public class SkinNetworking {
         }
     }
 
-    public record SkinTransferChunkPayload(
-            UUID playerUuid,
-            UUID transferId,
-            int chunkIndex,
-            byte[] data
-    ) implements CustomPayload {
-        public static final CustomPayload.Id<SkinTransferChunkPayload> ID =
-                new CustomPayload.Id<>(Identifier.of(MultiSkinMod.MOD_ID, "skin_transfer_chunk"));
-
+    public record SkinTransferChunkPayload(UUID playerUuid, UUID transferId, int chunkIndex, byte[] data) implements CustomPayload {
+        public static final CustomPayload.Id<SkinTransferChunkPayload> ID = new CustomPayload.Id<>(Identifier.of(MultiSkinMod.MOD_ID, "skin_transfer_chunk"));
         public static final PacketCodec<PacketByteBuf, SkinTransferChunkPayload> CODEC = PacketCodec.of(
                 (payload, buf) -> {
                     buf.writeUuid(payload.playerUuid());
@@ -138,16 +119,11 @@ public class SkinNetworking {
         PayloadTypeRegistry.playC2S().register(SkinUploadChunkPayload.ID, SkinUploadChunkPayload.CODEC);
         PayloadTypeRegistry.playC2S().register(SkinResetRequest.ID, SkinResetRequest.CODEC);
 
-        ServerPlayNetworking.registerGlobalReceiver(
-                SkinSyncRequest.ID,
-                (payload, context) -> context.server().execute(() -> sendAllSkins(context.player()))
-        );
-        ServerPlayNetworking.registerGlobalReceiver(
-                SkinRefreshSelfRequest.ID,
-                (payload, context) -> context.server().execute(() -> SkinCommand.refreshOwnSkin(context.player()))
-        );
-        ServerPlayNetworking.registerGlobalReceiver(
-                SkinApplyRequest.ID,
+        ServerPlayNetworking.registerGlobalReceiver(SkinSyncRequest.ID,
+                (payload, context) -> context.server().execute(() -> sendAllSkins(context.player())));
+        ServerPlayNetworking.registerGlobalReceiver(SkinRefreshSelfRequest.ID,
+                (payload, context) -> context.server().execute(() -> SkinCommand.refreshOwnSkin(context.player())));
+        ServerPlayNetworking.registerGlobalReceiver(SkinApplyRequest.ID,
                 (payload, context) -> context.server().execute(() ->
                         SkinCommand.applySkinFromScreen(
                                 context.player(),
@@ -157,18 +133,14 @@ public class SkinNetworking {
                                 payload.removedPartsMask() & 0xF
                         ))
         );
-        ServerPlayNetworking.registerGlobalReceiver(
-                SkinUploadStartPayload.ID,
+        ServerPlayNetworking.registerGlobalReceiver(SkinUploadStartPayload.ID,
                 (payload, context) -> context.server().execute(() -> startSkinUpload(context.player(), payload))
         );
-        ServerPlayNetworking.registerGlobalReceiver(
-                SkinUploadChunkPayload.ID,
+        ServerPlayNetworking.registerGlobalReceiver(SkinUploadChunkPayload.ID,
                 (payload, context) -> context.server().execute(() -> receiveSkinUploadChunk(context.player(), payload))
         );
-        ServerPlayNetworking.registerGlobalReceiver(
-                SkinResetRequest.ID,
-                (payload, context) -> context.server().execute(() ->
-                        SkinCommand.resetSkinFromScreen(context.player()))
+        ServerPlayNetworking.registerGlobalReceiver(SkinResetRequest.ID,
+                (payload, context) -> context.server().execute(() -> SkinCommand.resetSkinFromScreen(context.player()))
         );
     }
 
@@ -242,13 +214,10 @@ public class SkinNetworking {
 
         PENDING_UPLOADS.remove(player.getUuid(), upload);
         try {
-            BufferedImage image = ImageIO.read(new ByteArrayInputStream(upload.data));
-            if (image == null) {
-                throw new SkinManager.SkinException("error.multi-skin.skin.invalid_image");
-            }
+            BufferedImage image = SkinManager.decodeAndValidateSkinImage(upload.data);
             SkinCommand.applyUploadedSkin(
                     player, upload.model, upload.heightCm, upload.removedPartsMask,
-                    SkinManager.validateSkinImage(image), upload.requestId
+                    image, upload.requestId
             );
         } catch (Exception e) {
             SkinCommand.cancelUploadedSkinRequest(player.getUuid(), upload.requestId);
@@ -257,17 +226,8 @@ public class SkinNetworking {
         }
     }
 
-    public record SkinUploadStartPayload(
-            UUID transferId,
-            String skinModel,
-            int heightCm,
-            int removedPartsMask,
-            int totalBytes,
-            int chunkCount
-    ) implements CustomPayload {
-        public static final CustomPayload.Id<SkinUploadStartPayload> ID =
-                new CustomPayload.Id<>(Identifier.of(MultiSkinMod.MOD_ID, "skin_upload_start"));
-
+    public record SkinUploadStartPayload(UUID transferId, String skinModel, int heightCm, int removedPartsMask, int totalBytes, int chunkCount) implements CustomPayload {
+        public static final CustomPayload.Id<SkinUploadStartPayload> ID = new CustomPayload.Id<>(Identifier.of(MultiSkinMod.MOD_ID, "skin_upload_start"));
         public static final PacketCodec<PacketByteBuf, SkinUploadStartPayload> CODEC = PacketCodec.of(
                 (payload, buf) -> {
                     buf.writeUuid(payload.transferId());
@@ -294,9 +254,7 @@ public class SkinNetworking {
     }
 
     public record SkinUploadChunkPayload(UUID transferId, int chunkIndex, byte[] data) implements CustomPayload {
-        public static final CustomPayload.Id<SkinUploadChunkPayload> ID =
-                new CustomPayload.Id<>(Identifier.of(MultiSkinMod.MOD_ID, "skin_upload_chunk"));
-
+        public static final CustomPayload.Id<SkinUploadChunkPayload> ID = new CustomPayload.Id<>(Identifier.of(MultiSkinMod.MOD_ID, "skin_upload_chunk"));
         public static final PacketCodec<PacketByteBuf, SkinUploadChunkPayload> CODEC = PacketCodec.of(
                 (payload, buf) -> {
                     buf.writeUuid(payload.transferId());
@@ -317,9 +275,7 @@ public class SkinNetworking {
     }
 
     public record SkinSyncRequest() implements CustomPayload {
-        public static final CustomPayload.Id<SkinSyncRequest> ID =
-                new CustomPayload.Id<>(Identifier.of(MultiSkinMod.MOD_ID, "skin_sync_request"));
-
+        public static final CustomPayload.Id<SkinSyncRequest> ID = new CustomPayload.Id<>(Identifier.of(MultiSkinMod.MOD_ID, "skin_sync_request"));
         public static final PacketCodec<PacketByteBuf, SkinSyncRequest> CODEC = PacketCodec.of(
                 (payload, buf) -> {},
                 buf -> new SkinSyncRequest()
@@ -346,11 +302,8 @@ public class SkinNetworking {
         }
     }
 
-    public record SkinApplyRequest(String skinUrl, String skinModel, int heightCm, int removedPartsMask)
-            implements CustomPayload {
-        public static final CustomPayload.Id<SkinApplyRequest> ID =
-                new CustomPayload.Id<>(Identifier.of(MultiSkinMod.MOD_ID, "skin_apply_request"));
-
+    public record SkinApplyRequest(String skinUrl, String skinModel, int heightCm, int removedPartsMask) implements CustomPayload {
+        public static final CustomPayload.Id<SkinApplyRequest> ID = new CustomPayload.Id<>(Identifier.of(MultiSkinMod.MOD_ID, "skin_apply_request"));
         public static final PacketCodec<PacketByteBuf, SkinApplyRequest> CODEC = PacketCodec.of(
                 (payload, buf) -> {
                     buf.writeString(payload.skinUrl());
@@ -373,9 +326,7 @@ public class SkinNetworking {
     }
 
     public record SkinResetRequest() implements CustomPayload {
-        public static final CustomPayload.Id<SkinResetRequest> ID =
-                new CustomPayload.Id<>(Identifier.of(MultiSkinMod.MOD_ID, "skin_reset_request"));
-
+        public static final CustomPayload.Id<SkinResetRequest> ID = new CustomPayload.Id<>(Identifier.of(MultiSkinMod.MOD_ID, "skin_reset_request"));
         public static final PacketCodec<PacketByteBuf, SkinResetRequest> CODEC = PacketCodec.of(
                 (payload, buf) -> {},
                 buf -> new SkinResetRequest()
@@ -393,11 +344,7 @@ public class SkinNetworking {
         try {
             skin = SkinManager.loadSkinData(skinOwner);
         } catch (Exception e) {
-            MultiSkinMod.LOGGER.warn(
-                    "Impossible de charger le skin de {}",
-                    skinOwner.getName().getString(),
-                    e
-            );
+            MultiSkinMod.LOGGER.warn("Impossible de charger le skin de {}", skinOwner.getName().getString(), e);
             return;
         }
 
@@ -408,29 +355,15 @@ public class SkinNetworking {
         sendSkin(target, skinOwner.getUuid(), skin.url(), skin.model(), skin.heightCm());
     }
 
-    public static void sendSkin(
-            ServerPlayerEntity target,
-            UUID playerUuid,
-            String skinUrl,
-            String skinModel,
-            int heightCm
-    ) {
+    public static void sendSkin(ServerPlayerEntity target, UUID playerUuid, String skinUrl, String skinModel, int heightCm) {
         try {
-            sendSkinTransfer(target, playerUuid, skinUrl, skinModel, heightCm,
-                    SkinManager.readDownloadedSkin(playerUuid));
+            sendSkinTransfer(target, playerUuid, skinUrl, skinModel, heightCm, SkinManager.readDownloadedSkin(playerUuid));
         } catch (Exception e) {
             MultiSkinMod.LOGGER.warn("Impossible d'envoyer le skin de {}", playerUuid, e);
         }
     }
 
-    private static void sendSkinTransfer(
-            ServerPlayerEntity target,
-            UUID playerUuid,
-            String skinUrl,
-            String skinModel,
-            int heightCm,
-            byte[] imageData
-    ) {
+    private static void sendSkinTransfer(ServerPlayerEntity target, UUID playerUuid, String skinUrl, String skinModel, int heightCm, byte[] imageData) {
         if (imageData.length == 0 || imageData.length > SkinManager.MAX_SKIN_TRANSFER_BYTES) {
             MultiSkinMod.LOGGER.warn("Fichier de skin trop volumineux pour {}", playerUuid);
             return;
@@ -438,9 +371,7 @@ public class SkinNetworking {
 
         UUID transferId = UUID.randomUUID();
         int chunkCount = (imageData.length + SKIN_CHUNK_SIZE - 1) / SKIN_CHUNK_SIZE;
-        ServerPlayNetworking.send(target, new SkinTransferStartPayload(
-                playerUuid, transferId, skinUrl, skinModel, heightCm, imageData.length, chunkCount
-        ));
+        ServerPlayNetworking.send(target, new SkinTransferStartPayload(playerUuid, transferId, skinUrl, skinModel, heightCm, imageData.length, chunkCount));
         for (int chunkIndex = 0; chunkIndex < chunkCount; chunkIndex++) {
             int start = chunkIndex * SKIN_CHUNK_SIZE;
             int end = Math.min(start + SKIN_CHUNK_SIZE, imageData.length);
@@ -479,7 +410,6 @@ public class SkinNetworking {
 
     public record SkinResetPayload(UUID playerUuid) implements CustomPayload {
         public static final CustomPayload.Id<SkinResetPayload> ID = new CustomPayload.Id<>(Identifier.of(MultiSkinMod.MOD_ID, "skin_reset"));
-
         public static final PacketCodec<PacketByteBuf, SkinResetPayload> CODEC = PacketCodec.of(
                 (payload, buf) -> {
                     buf.writeUuid(payload.playerUuid());

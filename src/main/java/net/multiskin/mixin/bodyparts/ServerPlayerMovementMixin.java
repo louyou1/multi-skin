@@ -16,6 +16,7 @@ public abstract class ServerPlayerMovementMixin {
         ServerPlayerEntity player = (ServerPlayerEntity)(Object)this;
         int mask = BodyPartManager.getMask(player);
         BodyPartMovement.updatePose(player, mask);
+        BodyPartMovement.updateCrutchMovementSpeed(player, mask);
         if (BodyPart.hasOneLeg(mask)) {
             player.setSprinting(false);
         }

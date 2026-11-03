@@ -19,19 +19,22 @@ import java.net.http.HttpResponse;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.Iterator;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 import javax.imageio.ImageIO;
+import javax.imageio.ImageReader;
+import javax.imageio.stream.ImageInputStream;
 
 public class SkinManager {
-    static final long MAX_IMAGE_BYTES = 128L * 1024L * 1024L;
     public static final int MAX_SKIN_TRANSFER_BYTES = 8 * 1024 * 1024;
+    static final long MAX_IMAGE_BYTES = MAX_SKIN_TRANSFER_BYTES;
     public static final String UPLOADED_SKIN_SOURCE = "multiskin-client-upload";
 
     private static final HttpClient HTTP_CLIENT = HttpClient.newBuilder()
-            .followRedirects(HttpClient.Redirect.NORMAL)
+            .followRedirects(HttpClient.Redirect.NEVER)
             .connectTimeout(Duration.ofSeconds(10))
             .build();
     private static final Path SKIN_FOLDER = Path.of("config", "multi-skin", "skins");
@@ -98,29 +101,48 @@ public class SkinManager {
             throw new SkinException("error.multi-skin.skin.public_url");
         }
 
-        BufferedImage image = ImageIO.read(new ByteArrayInputStream(fetchImageBytes(uri)));
-
-        if (image == null) {
-            throw new SkinException("error.multi-skin.skin.invalid_image");
-        }
-
-        return validateSkinImage(image);
+        return decodeAndValidateSkinImage(fetchImageBytes(uri));
     }
 
     public static BufferedImage validateSkinImage(BufferedImage image) throws IOException {
-        int width = image.getWidth();
-        int height = image.getHeight();
+        validateSkinDimensions(image.getWidth(), image.getHeight());
+        return image;
+    }
 
-        if (width != height
-                || !MultiSkinConfig.isSupportedSkinSize(width)
-                || width > MultiSkinConfig.getMaxSkinSize()) {
-            throw new SkinException(
-                    "error.multi-skin.skin.invalid_image_size",
-                    MultiSkinConfig.getMaxSkinSize()
-            );
+    public static BufferedImage decodeAndValidateSkinImage(byte[] imageData) throws IOException {
+        if (imageData.length == 0 || imageData.length > MAX_IMAGE_BYTES) {
+            throw new SkinException("error.multi-skin.skin.image_too_large");
         }
 
-        return image;
+        try (ImageInputStream input = ImageIO.createImageInputStream(new ByteArrayInputStream(imageData))) {
+            if (input == null) {
+                throw new SkinException("error.multi-skin.skin.invalid_image");
+            }
+
+            Iterator<ImageReader> readers = ImageIO.getImageReaders(input);
+            if (!readers.hasNext()) {
+                throw new SkinException("error.multi-skin.skin.invalid_image");
+            }
+
+            ImageReader reader = readers.next();
+            try {
+                reader.setInput(input, true, true);
+                validateSkinDimensions(reader.getWidth(0), reader.getHeight(0));
+                BufferedImage image = reader.read(0);
+                if (image == null) {
+                    throw new SkinException("error.multi-skin.skin.invalid_image");
+                }
+                return validateSkinImage(image);
+            } finally {
+                reader.dispose();
+            }
+        }
+    }
+
+    private static void validateSkinDimensions(int width, int height) throws SkinException {
+        if (width != height || !MultiSkinConfig.isSupportedSkinSize(width) || width > MultiSkinConfig.getMaxSkinSize()) {
+            throw new SkinException("error.multi-skin.skin.invalid_image_size", MultiSkinConfig.getMaxSkinSize());
+        }
     }
 
     public static byte[] fetchImageBytes(String url) throws IOException, InterruptedException {
@@ -288,18 +310,14 @@ public class SkinManager {
         }
 
         try {
-            return Math.clamp(Integer.parseInt(json.substring(start, end)),
-                    SizeManager.MIN_HEIGHT_CM,
-                    SizeManager.MAX_HEIGHT_CM);
+            return Math.clamp(Integer.parseInt(json.substring(start, end)), SizeManager.MIN_HEIGHT_CM, SizeManager.MAX_HEIGHT_CM);
         } catch (NumberFormatException ignored) {
             return fallback;
         }
     }
 
     private static String escapeJson(String value) {
-        return value
-                .replace("\\", "\\\\")
-                .replace("\"", "\\\"");
+        return value.replace("\\", "\\\\").replace("\"", "\\\"");
     }
 
     public static void deleteSkinData(ServerPlayerEntity player) throws IOException {

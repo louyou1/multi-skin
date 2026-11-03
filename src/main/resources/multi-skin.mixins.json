@@ -6,6 +6,7 @@
 	"bodyparts.BipedEntityModelMixin",
 	"bodyparts.ClientPlayerMovementMixin",
 	"bodyparts.ClientPlayerPoseMixin",
+	"fastchoose.FastChooseKeyboardMixin",
 	"bodyparts.HeldItemRendererMixin",
 	"bodyparts.MinecraftClientMixin",
 	"bodyparts.PlayerEntityModelMixin",
@@ -15,7 +16,11 @@
 	"skin.FirstPersonArmMixin",
 	"skin.SkinTexturesMixin",
 	"skin.PlayerListEntryMixin",
-	"skin.PlayerListHudMixin"
+	"skin.PlayerListHudMixin",
+	"skin.SkinPreviewNameTagMixin",
+	"skin.GameOptionsScreenAccessor",
+	"skin.SkinOptionsScreenMixin",
+	"fastchoose.FastChooseCrosshairMixin"
 	],
 	"mixins": [
 		"bodyparts.PlayerEntityPoseMixin",

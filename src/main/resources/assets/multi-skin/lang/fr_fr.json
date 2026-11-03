@@ -5,6 +5,7 @@
   "group.multi-skin.multiskin_mod_icon": "Multi-Skin Mod Icon",
 
   "key.multi-skin.skin_menu": "Menu des skins",
+  "key.multi-skin.fast_choose": "Sélection rapide des skins (maintenir)",
   "key.categories.multi-skin": "Multi-Skin Mod",
 
   "screen.multi-skin.skin_editor.new_title": "Nouveau skin",
@@ -76,6 +77,18 @@
   "screen.multi-skin.folder_editor.folder_name": "Nom du dossier",
 
   "screen.multi-skin.skin.title": "Multi-Skin Skins",
+  "screen.multi-skin.open_skin_menu": "Gérer les skins",
+  "screen.multi-skin.fast_choose.title": "Sélection rapide",
+  "screen.multi-skin.fast_choose.page": "%s / %s",
+  "screen.multi-skin.fast_choose.hint": "Cliquez sur un skin • Relâchez ALT pour fermer",
+  "screen.multi-skin.fast_choose.empty": "Aucun skin assigné",
+  "screen.multi-skin.skin.fast_choose.title": "Configurer la roue rapide",
+  "screen.multi-skin.skin.fast_choose.configure": "Roue rapide",
+  "screen.multi-skin.skin.fast_choose.close": "Fermer roue",
+  "screen.multi-skin.skin.fast_choose.page_count": "%s page(s)",
+  "screen.multi-skin.skin.fast_choose.empty_slot": "Vide",
+  "screen.multi-skin.skin.fast_choose.select_skin": "Sélectionnez un skin à gauche",
+  "screen.multi-skin.skin.fast_choose.assign_skin": "Cliquez sur un emplacement pour placer %s",
   "screen.multi-skin.skin.search": "Rechercher",
   "screen.multi-skin.skin.search_placeholder": "Rechercher un skin...",
   "screen.multi-skin.skin.refresh": "Actualiser",

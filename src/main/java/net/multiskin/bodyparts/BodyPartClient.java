@@ -15,7 +15,9 @@ import java.util.concurrent.ConcurrentHashMap;
 
 public final class BodyPartClient {
     private static final Map<UUID, Integer> REMOVED_PARTS = new ConcurrentHashMap<>();
-    private static final ThreadLocal<Integer> PREVIEW_MASK = new ThreadLocal<>();
+    private static final ThreadLocal<PreviewMask> PREVIEW_MASK = new ThreadLocal<>();
+
+    private record PreviewMask(UUID playerUuid, int mask) {}
 
     private BodyPartClient() {
     }
@@ -52,19 +54,16 @@ public final class BodyPartClient {
     }
 
     public static int getMask(UUID playerUuid) {
-        Integer previewMask = PREVIEW_MASK.get();
-        if (previewMask != null) {
-            var player = net.minecraft.client.MinecraftClient.getInstance().player;
-            if (player != null && player.getUuid().equals(playerUuid)) {
-                return previewMask;
-            }
+        PreviewMask previewMask = PREVIEW_MASK.get();
+        if (previewMask != null && previewMask.playerUuid().equals(playerUuid)) {
+            return previewMask.mask();
         }
         return REMOVED_PARTS.getOrDefault(playerUuid, 0);
     }
 
-    public static void withPreviewMask(int mask, Runnable render) {
-        Integer previousMask = PREVIEW_MASK.get();
-        PREVIEW_MASK.set(mask & 0xF);
+    public static void withPreviewMask(UUID playerUuid, int mask, Runnable render) {
+        PreviewMask previousMask = PREVIEW_MASK.get();
+        PREVIEW_MASK.set(new PreviewMask(playerUuid, mask & 0xF));
         try {
             render.run();
         } finally {
@@ -74,5 +73,14 @@ public final class BodyPartClient {
                 PREVIEW_MASK.set(previousMask);
             }
         }
+    }
+
+    public static void withPreviewMask(int mask, Runnable render) {
+        var player = net.minecraft.client.MinecraftClient.getInstance().player;
+        if (player == null) {
+            render.run();
+            return;
+        }
+        withPreviewMask(player.getUuid(), mask, render);
     }
 }

@@ -54,8 +54,21 @@ déplacement et la portée se règlent par les opérateurs avec :
 /multiskinconfig reload
 ```
 
-Les coefficients sont compris entre `0.0` et `2.0`. La configuration est
-enregistrée dans `config/multi-skin/config.json`.
+Les coefficients sont compris entre `0.0` et `2.0`. Ces options `size speed`
+et `size reach` règlent les effets Pehkui.
+
+La taille maximale autorisée pour les images de skin se règle séparément. Les
+opérateurs peuvent choisir une limite parmi `64`, `128`, `256`, `512` et `1024` :
+
+```text
+/multiskinconfig skin size <64|128|256|512|1024>
+/multiskinconfig get skin size
+```
+
+La limite autorise également toutes les tailles inférieures parmi ces choix :
+par exemple, une limite à `512` accepte les skins `64×64`, `128×128`, `256×256`
+et `512×512`. La limite par défaut est `1024`. La configuration est enregistrée
+dans `config/multi-skin/config.json`.
 
 ## Installation
 

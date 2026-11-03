@@ -6,6 +6,8 @@ import net.minecraft.client.option.KeyBinding;
 import net.minecraft.client.util.InputUtil;
 import net.minecraft.client.MinecraftClient;
 import net.multiskin.skin.SkinClient;
+import net.multiskin.skin.fastchoose.FastChooseInput;
+import net.multiskin.skin.fastchoose.FastChooseScreen;
 
 import org.lwjgl.glfw.GLFW;
 
@@ -14,19 +16,35 @@ import java.util.Set;
 
 public class SkinKeybinds {
     public static KeyBinding OPEN_MENU;
+    public static KeyBinding FAST_CHOOSE;
     private static final Set<Integer> PRESSED_KEYS = new HashSet<>();
     private static int refreshTicks;
     private static java.util.List<SkinLibrary.SkinEntry> skins = java.util.List.of();
 
     public static void initialize() {
-        OPEN_MENU = KeyBindingHelper.registerKeyBinding(
-                new KeyBinding("key.multi-skin.skin_menu", InputUtil.Type.KEYSYM, GLFW.GLFW_KEY_F12, "multi-skin"));
+        OPEN_MENU = KeyBindingHelper.registerKeyBinding(new KeyBinding("key.multi-skin.skin_menu", InputUtil.Type.KEYSYM, GLFW.GLFW_KEY_F12, "multi-skin"));
+        FAST_CHOOSE = KeyBindingHelper.registerKeyBinding(new KeyBinding("key.multi-skin.fast_choose", InputUtil.Type.KEYSYM, GLFW.GLFW_KEY_LEFT_ALT, "multi-skin"));
         skins = SkinLibrary.getAllSkins();
     }
 
     public static void tick(MinecraftClient client) {
-        if (client.currentScreen != null || client.player == null || client.player.networkHandler == null) {
+        if (client.player == null || client.player.networkHandler == null) {
             PRESSED_KEYS.clear();
+            return;
+        }
+
+        if (client.currentScreen instanceof FastChooseScreen) {
+            return;
+        }
+
+        if (client.currentScreen != null) {
+            PRESSED_KEYS.clear();
+            return;
+        }
+
+        if (FAST_CHOOSE.isPressed()) {
+            client.setScreen(new FastChooseScreen());
+            FastChooseInput.syncMovementKeys(client);
             return;
         }
 
@@ -52,6 +70,10 @@ public class SkinKeybinds {
 
         PRESSED_KEYS.retainAll(currentKeys);
         PRESSED_KEYS.addAll(currentKeys);
+    }
+
+    public static boolean isFastChooseDown(MinecraftClient client) {
+        return FAST_CHOOSE != null && FastChooseInput.isKeyBindingDown(FAST_CHOOSE);
     }
 
     public static String getKeyName(int keyCode) {

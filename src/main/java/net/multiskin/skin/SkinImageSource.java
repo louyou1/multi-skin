@@ -1,7 +1,6 @@
 package net.multiskin.skin;
 
 import java.awt.image.BufferedImage;
-import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.net.URI;
@@ -30,11 +29,7 @@ public final class SkinImageSource {
         }
         byte[] data = Files.readAllBytes(imagePath);
 
-        BufferedImage image = ImageIO.read(new ByteArrayInputStream(data));
-        if (image == null) {
-            throw new SkinManager.SkinException("error.multi-skin.skin.invalid_image");
-        }
-        return SkinManager.validateSkinImage(image);
+        return SkinManager.decodeAndValidateSkinImage(data);
     }
 
     public static byte[] encodePng(BufferedImage image) throws IOException {
