@@ -14,12 +14,14 @@ import java.util.List;
 public class FastChooseScreen extends Screen {
     private static final int SKINS_PER_PAGE = 8;
     private static final int SLOT_SIZE = 58;
+    private static int lastPage;
     private final List<SkinLibrary.SkinEntry> skins;
     private int page;
 
     public FastChooseScreen() {
         super(Text.translatable("screen.multi-skin.fast_choose.title"));
         skins = SkinLibrary.getFastChooseSkins();
+        page = Math.clamp(lastPage, 0, Math.max(0, SkinLibrary.getFastChoosePageCount() - 1));
     }
 
     @Override
@@ -164,6 +166,7 @@ public class FastChooseScreen extends Screen {
             return;
         }
         page = Math.floorMod(page + amount, pageCount);
+        lastPage = page;
     }
 
     private int getPageCount() {
